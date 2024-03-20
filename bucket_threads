@@ -1,0 +1,111 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <pthread.h>
+#include <time.h>
+
+
+#define MAX_VALUE 100
+#define N 1000 
+#define NUM_BUCKETS 10 
+#define NUM_THREADS NUM_BUCKETS
+
+typedef struct {
+    int* array;
+    int size;
+} Bucket;
+
+Bucket buckets[NUM_BUCKETS];
+int arr[N];
+pthread_mutex_t mutexes[NUM_BUCKETS];
+
+
+int compare_ints(const void* a, const void* b) {
+    int arg1 = (const int)a;
+    int arg2 = (const int)b;
+    return (arg1 > arg2) - (arg1 < arg2);
+}
+
+
+void* distribute(void* arg) {
+    int index = (int)arg;
+    int start = index * (N / NUM_THREADS);
+    int end = (index == NUM_THREADS - 1) ? N : start + (N / NUM_THREADS);
+
+    for (int i = start; i < end; ++i) {
+        int bucketIndex = arr[i] / (MAX_VALUE / NUM_BUCKETS);
+        pthread_mutex_lock(&mutexes[bucketIndex]);
+        buckets[bucketIndex].array[buckets[bucketIndex].size++] = arr[i];
+        pthread_mutex_unlock(&mutexes[bucketIndex]);
+    }
+
+    pthread_exit(NULL);
+}
+
+
+void* sort_bucket(void* arg) {
+    Bucket* bucket = (Bucket*)arg;
+    qsort(bucket->array, bucket->size, sizeof(int), compare_ints);
+    pthread_exit(NULL);
+}
+
+int main() {
+    pthread_t threads[NUM_THREADS];
+    int thread_indices[NUM_THREADS];
+
+
+    for (int i = 0; i < NUM_BUCKETS; ++i) {
+        buckets[i].array = (int*)malloc(N * sizeof(int));
+        buckets[i].size = 0;
+        pthread_mutex_init(&mutexes[i], NULL);
+    }
+
+
+    for (int i = 0; i < N; ++i) {
+        arr[i] = rand() % MAX_VALUE;
+    }
+    
+    clock_t start = clock();
+
+
+    for (int i = 0; i < NUM_THREADS; ++i) {
+        thread_indices[i] = i;
+        pthread_create(&threads[i], NULL, distribute, (void*)&thread_indices[i]);
+    }
+
+
+    for (int i = 0; i < NUM_THREADS; ++i) {
+        pthread_join(threads[i], NULL);
+    }
+
+
+    for (int i = 0; i < NUM_BUCKETS; ++i) {
+        pthread_create(&threads[i], NULL, sort_bucket, (void*)&buckets[i]);
+    }
+
+
+    for (int i = 0; i < NUM_BUCKETS; ++i) {
+        pthread_join(threads[i], NULL);
+    }
+    
+    clock_t end =clock();
+
+
+    int index = 0;
+    for (int i = 0; i < NUM_BUCKETS; ++i) {
+        for (int j = 0; j < buckets[i].size; ++j) {
+            arr[index++] = buckets[i].array[j];
+        }
+        free(buckets[i].array);
+    }
+
+
+
+    for (int i = 0; i < NUM_BUCKETS; ++i) {
+        pthread_mutex_destroy(&mutexes[i]);
+    }
+    
+    double total = ((double)(end - start)) / CLOCKS_PER_SEC * 1000;
+    printf("Total execution time: %.2f milliseconds\n", total);
+    return 0;
+
+}
